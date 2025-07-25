@@ -11,7 +11,9 @@ fi
 
 # keep container running - default to bash if no arguments
 if [ $# -eq 0 ]; then
+    echo "No arguments provided, starting interactive bash shell..."
     exec /bin/bash
 else
+    echo "Executing provided arguments: $@"
     exec "$@"
 fi
