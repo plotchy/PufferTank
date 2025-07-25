@@ -1,11 +1,13 @@
-FROM nvcr.io/nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+# Build stage
+FROM nvcr.io/nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04 as builder
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN mkdir -p /puffertank
 WORKDIR /puffertank
 
-# Core system packages
-RUN apt update && apt install -y git curl
+# Core system packages (minimal for initial setup)
+RUN apt update && apt install -y git curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Workaround for nethack/minihack
 ENV READTHEDOCS=True
@@ -39,14 +41,32 @@ RUN . $HOME/.local/bin/env \
     && uv pip install -e pufferlib[train] --no-build-isolation
 
 # Must install after pufferlib (Docker quirk with TORCH_CUDA_ARCH)
-RUN apt install -y \
-    build-essential curl git htop clang gdb llvm tmux psmisc software-properties-common sudo libglfw3
+RUN apt update && apt install -y \
+    build-essential htop clang gdb llvm tmux psmisc software-properties-common sudo libglfw3 \
+    && rm -rf /var/lib/apt/lists/* && apt clean
 
 # CARBS hyperparam sweeps
 RUN git clone https://github.com/pufferai/carbs \
     && . $HOME/.local/bin/env \
     && . venv/bin/activate \
     && uv pip install -e carbs
+
+# Runtime stage - use runtime image instead of devel
+FROM nvcr.io/nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN mkdir -p /puffertank
+WORKDIR /puffertank
+
+# Only install runtime packages
+RUN apt update && apt install -y \
+    curl git htop clang gdb llvm tmux psmisc software-properties-common sudo libglfw3 python3.12 \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt clean
+
+# Copy built environment from builder stage
+COPY --from=builder /puffertank /puffertank
+COPY --from=builder /root/.local /root/.local
 
 # Run on container startup
 COPY entrypoint.sh /root/entrypoint.sh
@@ -60,5 +80,4 @@ RUN echo "export PS1=$''" >> ~/.bashrc \
  && echo ". /puffertank/venv/bin/activate" >> ~/.bashrc \
  && echo "cd /puffertank/pufferlib" >> ~/.bashrc
 
-RUN apt clean
 CMD ["/bin/bash"]
